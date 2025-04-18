@@ -1,0 +1,635 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Buzzer System</title>
+  <link rel="stylesheet" href="index.css">
+</head>
+<body>
+  <div class="container">
+    <h1>Online Buzzer</h1>
+    
+    <!-- Initial Selection Screen -->
+    <div id="initialScreen" class="section">
+      <h2>Join or Create a Room</h2>
+      <button id="createRoomBtn">Create a Room (Host)</button>
+      <div>
+        <h3>Join Existing Room</h3>
+        <!-- <input type="text" id="participantName" placeholder="Your Name" required> -->
+        <input type="text" id="roomIdInput" placeholder="Room Code" required>
+        <button id="joinRoomBtn">Join Room</button>
+      </div>
+    </div>
+    
+    <!-- Host Screen -->
+    <div id="hostScreen" class="section hidden">
+      <h2>Host Panel</h2>
+      <div class="room-code">Room Code: <span id="roomCode"></span></div>
+      <div class="round-info">Round: <span id="currentRoundDisplay">1</span></div>
+      
+      <div class="control-panel">
+        <select id="countdownTime">
+          <option value="0">No countdown</option>
+          <option value="3">3 second countdown</option>
+          <option value="5">5 second countdown</option>
+        </select>
+        <button id="startCountdownBtn">Start Countdown</button>
+        <button id="endRoundBtn" disabled>End Round</button>
+        <button id="resetBuzzerBtn">Reset for New Round</button>
+      </div>
+      
+      <div id="countdownDisplay" class="countdown-container hidden">
+        <div class="countdown">5</div>
+        <div>Get ready!</div>
+      </div>
+      
+      <div>
+        <h3>Participants:</h3>
+        <div id="participantsList"></div>
+      </div>
+      
+      <div id="winnerDisplay" class="winner hidden"></div>
+      
+      <div class="tab-container">
+        <div class="tab-buttons">
+          <button class="tab-button active" onclick="openTab(event, 'currentRoundTab')">Current Round</button>
+          <button class="tab-button" onclick="openTab(event, 'scoreboardTab')">Scoreboard</button>
+          <button class="tab-button" onclick="openTab(event, 'roundHistoryTab')">Round History</button>
+        </div>
+        
+        <div id="currentRoundTab" class="tab-content active">
+          <h3>Current Buzzer Results:</h3>
+          <ul id="buzzerResults"></ul>
+        </div>
+        
+        <div id="scoreboardTab" class="tab-content">
+          <h3>Participant Scores:</h3>
+          <table id="scoreboardTable" class="scoreboard">
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Score</th>
+              </tr>
+            </thead>
+            <tbody id="scoreboardBody"></tbody>
+          </table>
+        </div>
+        
+        <div id="roundHistoryTab" class="tab-content">
+          <h3>Previous Rounds:</h3>
+          <div id="roundHistoryList" class="round-history"></div>
+        </div>
+      </div>
+    </div>
+    
+    <!-- Participant Screen -->
+    <div id="participantScreen" class="section hidden">
+      <h2>Participant Panel</h2>
+      <div class="room-code">Room Code: <span id="participantRoomCode"></span></div>
+      <div class="round-info">Round: <span id="participantCurrentRoundDisplay">1</span></div>
+      
+      <div id="participantCountdown" class="countdown-container hidden">
+        <div class="countdown">5</div>
+        <div>Get ready!</div>
+      </div>
+      
+      <button id="buzzer" disabled>BUZZ!</button>
+      <div id="participantStatus">Waiting for host to start...</div>
+      
+      <div id="yourResult" class="your-result hidden"></div>
+      
+      <div id="winnerDisplayParticipant" class="winner hidden"></div>
+      
+      <div class="tab-container">
+        <div class="tab-buttons">
+          <button class="tab-button active" onclick="openTab(event, 'participantCurrentRoundTab')">Current Round</button>
+          <button class="tab-button" onclick="openTab(event, 'participantScoreboardTab')">Scoreboard</button>
+          <button class="tab-button" onclick="openTab(event, 'participantRoundHistoryTab')">Round History</button>
+        </div>
+        
+        <div id="participantCurrentRoundTab" class="tab-content active">
+          <h3>Current Buzzer Results:</h3>
+          <ul id="participantBuzzerResults"></ul>
+        </div>
+        
+        <div id="participantScoreboardTab" class="tab-content">
+          <h3>Participant Scores:</h3>
+          <table id="participantScoreboardTable" class="scoreboard">
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Score</th>
+              </tr>
+            </thead>
+            <tbody id="participantScoreboardBody"></tbody>
+          </table>
+        </div>
+        
+        <div id="participantRoundHistoryTab" class="tab-content">
+          <h3>Previous Rounds:</h3>
+          <div id="participantRoundHistoryList" class="round-history"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script>
+    // Connect to Socket.IO server
+    const socket = io();
+    
+    // DOM Elements
+    const initialScreen = document.getElementById('initialScreen');
+    const hostScreen = document.getElementById('hostScreen');
+    const participantScreen = document.getElementById('participantScreen');
+    const createRoomBtn = document.getElementById('createRoomBtn');
+    const joinRoomBtn = document.getElementById('joinRoomBtn');
+    const roomIdInput = document.getElementById('roomIdInput');
+    const participantName = document.getElementById('participantName');
+    const roomCode = document.getElementById('roomCode');
+    const participantRoomCode = document.getElementById('participantRoomCode');
+    const participantsList = document.getElementById('participantsList');
+    const buzzer = document.getElementById('buzzer');
+    const participantStatus = document.getElementById('participantStatus');
+    const resetBuzzerBtn = document.getElementById('resetBuzzerBtn');
+    const startCountdownBtn = document.getElementById('startCountdownBtn');
+    const endRoundBtn = document.getElementById('endRoundBtn');
+    const buzzerResults = document.getElementById('buzzerResults');
+    const participantBuzzerResults = document.getElementById('participantBuzzerResults');
+    const countdownTime = document.getElementById('countdownTime');
+    const countdownDisplay = document.getElementById('countdownDisplay');
+    const participantCountdown = document.getElementById('participantCountdown');
+    const winnerDisplay = document.getElementById('winnerDisplay');
+    const winnerDisplayParticipant = document.getElementById('winnerDisplayParticipant');
+    const yourResult = document.getElementById('yourResult');
+    const currentRoundDisplay = document.getElementById('currentRoundDisplay');
+    const participantCurrentRoundDisplay = document.getElementById('participantCurrentRoundDisplay');
+    const scoreboardBody = document.getElementById('scoreboardBody');
+    const participantScoreboardBody = document.getElementById('participantScoreboardBody');
+    const roundHistoryList = document.getElementById('roundHistoryList');
+    const participantRoundHistoryList = document.getElementById('participantRoundHistoryList');
+    
+    // State variables
+    let currentRoomId = null;
+    let isHost = false;
+    let hasBuzzed = false;
+    let roundHistory = [];
+    let currentRound = 1;
+    let participantScores = {};
+    
+    // Event listeners
+    createRoomBtn.addEventListener('click', () => {
+      socket.emit('create-room');
+    });
+    
+    joinRoomBtn.addEventListener('click', () => {
+      const roomId = roomIdInput.value.trim();
+      
+      
+      if (!roomId) {
+        alert('Please enter the room code');
+        return;
+      }
+      
+      socket.emit('join-room', { roomId });
+    });
+    
+    buzzer.addEventListener('click', () => {
+      const clientTimestamp = Date.now();
+      socket.emit('buzz', { roomId: currentRoomId, clientTimestamp });
+      participantStatus.textContent = 'Buzz sent!';
+      buzzer.disabled = true;
+      hasBuzzed = true;
+    });
+    
+    resetBuzzerBtn.addEventListener('click', () => {
+      socket.emit('reset-buzzer', { roomId: currentRoomId });
+      winnerDisplay.classList.add('hidden');
+      winnerDisplayParticipant.classList.add('hidden');
+      yourResult.classList.add('hidden');
+      endRoundBtn.disabled = true;
+    });
+    
+    startCountdownBtn.addEventListener('click', () => {
+      const seconds = parseInt(countdownTime.value);
+      socket.emit('start-countdown', { roomId: currentRoomId, countdownSeconds: seconds });
+      startCountdownBtn.disabled = true;
+      resetBuzzerBtn.disabled = true;
+    });
+    
+    endRoundBtn.addEventListener('click', () => {
+      socket.emit('end-round', { roomId: currentRoomId });
+      endRoundBtn.disabled = true;
+      
+      // Display winner
+      if (buzzerResults.children.length > 0) {
+        const winnerName = buzzerResults.children[0].textContent.split(': ')[0];
+        const winnerTime = buzzerResults.children[0].textContent.split(': ')[1];
+        winnerDisplay.innerHTML = `Winner: ${winnerName} <br> Reaction Time: ${winnerTime}`;
+        winnerDisplay.classList.remove('hidden');
+      }
+      
+      // Make sure reset button is enabled here as well
+      resetBuzzerBtn.disabled = false;
+    });
+    
+    // Socket.IO event handlers
+    socket.on('room-created', ({ roomId }) => {
+      isHost = true;
+      currentRoomId = roomId;
+      roomCode.textContent = roomId;
+      currentRoundDisplay.textContent = '1';
+      
+      initialScreen.classList.add('hidden');
+      hostScreen.classList.remove('hidden');
+    });
+    
+    socket.on('joined-room', ({ roomId, isHost: hostStatus, participants, buzzerState, rounds, currentRound: roundNum }) => {
+      isHost = hostStatus;
+      currentRoomId = roomId;
+      roundHistory = rounds || [];
+      currentRound = roundNum || 1;
+      
+      initialScreen.classList.add('hidden');
+      if (isHost) {
+        hostScreen.classList.remove('hidden');
+        roomCode.textContent = roomId;
+        currentRoundDisplay.textContent = currentRound;
+        
+        // Display participants
+        updateParticipantsList(participants);
+        
+        // Update round history
+        updateRoundHistory(roundHistory);
+      } else {
+        participantScreen.classList.remove('hidden');
+        participantRoomCode.textContent = roomId;
+        participantCurrentRoundDisplay.textContent = currentRound;
+        
+        // Update round history
+        updateParticipantRoundHistory(roundHistory);
+        
+        // Set initial buzzer state
+        updateBuzzerState(buzzerState);
+      }
+    });
+    
+    socket.on('participant-joined', ({ id, name }) => {
+      // Add the new participant to the list
+      const participantElement = document.createElement('div');
+      participantElement.className = 'participant';
+      participantElement.id = `participant-${id}`;
+      participantElement.textContent = name;
+      participantsList.appendChild(participantElement);
+    });
+    
+    socket.on('participant-left', ({ id, name }) => {
+      // Remove the participant from the list
+      const participantElement = document.getElementById(`participant-${id}`);
+      if (participantElement) {
+        participantElement.remove();
+      }
+    });
+    
+    socket.on('countdown-started', ({ countdownSeconds, endTime, currentRound: roundNum }) => {
+      hasBuzzed = false;
+      currentRound = roundNum;
+      
+      // Update round display
+      currentRoundDisplay.textContent = currentRound;
+      participantCurrentRoundDisplay.textContent = currentRound;
+      
+      // Update UI based on role
+      if (isHost) {
+        countdownDisplay.classList.remove('hidden');
+        const countdownElement = countdownDisplay.querySelector('.countdown');
+        startCountdown(countdownElement, countdownSeconds);
+        
+        buzzerResults.innerHTML = ''; // Clear previous results
+      } else {
+        participantCountdown.classList.remove('hidden');
+        const countdownElement = participantCountdown.querySelector('.countdown');
+        startCountdown(countdownElement, countdownSeconds);
+        
+        participantStatus.textContent = 'Get ready!';
+        buzzer.disabled = true;
+        buzzer.classList.remove('active');
+        participantBuzzerResults.innerHTML = ''; // Clear previous results
+        yourResult.classList.add('hidden');
+        winnerDisplayParticipant.classList.add('hidden');
+      }
+    });
+    
+    socket.on('buzzer-active', ({ buzzerState }) => {
+      if (isHost) {
+        countdownDisplay.classList.add('hidden');
+        endRoundBtn.disabled = false;
+      } else {
+        participantCountdown.classList.add('hidden');
+        buzzer.disabled = hasBuzzed;
+        buzzer.classList.add('active');
+        participantStatus.textContent = hasBuzzed ? 'Buzz sent!' : 'BUZZ NOW!';
+      }
+    });
+    
+    socket.on('buzz-event', ({ id, name, buzzerPresses }) => {
+      // Update the results list for everyone
+      updateBuzzerResults(buzzerPresses);
+    });
+    
+    socket.on('your-buzz-recorded', ({ reactionTime }) => {
+      // Show the participant their reaction time
+      yourResult.textContent = `Your reaction time: ${reactionTime} ms`;
+      yourResult.classList.remove('hidden');
+    });
+    
+    socket.on('round-ended', ({ buzzerState, buzzerPresses, rounds, scores }) => {
+      updateBuzzerState(buzzerState);
+      roundHistory = rounds;
+      participantScores = scores;
+      
+      // Update scoreboard
+      updateScoreboard(scores);
+      
+      // Update round history
+      if (isHost) {
+        updateRoundHistory(rounds);
+        // Add this line to re-enable the reset button for the host
+        resetBuzzerBtn.disabled = false;
+        // And make sure startCountdown button is disabled until reset
+        startCountdownBtn.disabled = true;
+      } else {
+        updateParticipantRoundHistory(rounds);
+        
+        // Display winner for participants
+        if (buzzerPresses.length > 0) {
+          const winner = buzzerPresses[0];
+          winnerDisplayParticipant.innerHTML = `Round ${currentRound} Winner: ${winner.name} <br> Reaction Time: ${winner.reactionTime} ms`;
+          winnerDisplayParticipant.classList.remove('hidden');
+        } else {
+          winnerDisplayParticipant.innerHTML = `Round ${currentRound} completed - No winner`;
+          winnerDisplayParticipant.classList.remove('hidden');
+        }
+      }
+    });
+    
+    socket.on('buzzer-reset', ({ buzzerState, currentRound: roundNum, rounds, scores }) => {
+      // Update round number
+      currentRound = roundNum;
+      currentRoundDisplay.textContent = currentRound;
+      participantCurrentRoundDisplay.textContent = currentRound;
+      
+      // Update round history and scores
+      roundHistory = rounds;
+      participantScores = scores;
+      
+      // Update scoreboard and history displays
+      updateScoreboard(scores);
+      if (isHost) {
+        updateRoundHistory(rounds);
+      } else {
+        updateParticipantRoundHistory(rounds);
+      }
+      
+      // Clear results
+      buzzerResults.innerHTML = '';
+      participantBuzzerResults.innerHTML = '';
+      
+      // Reset UI
+      if (isHost) {
+        startCountdownBtn.disabled = false;
+        resetBuzzerBtn.disabled = false;
+        countdownDisplay.classList.add('hidden');
+        winnerDisplay.classList.add('hidden');
+      } else {
+        buzzer.disabled = true;
+        buzzer.classList.remove('active');
+        participantCountdown.classList.add('hidden');
+        participantStatus.textContent = 'Waiting for host to start...';
+        hasBuzzed = false;
+        yourResult.classList.add('hidden');
+        winnerDisplayParticipant.classList.add('hidden');
+      }
+    });
+    
+    socket.on('room-closed', ({ message }) => {
+      alert(message);
+      window.location.reload(); // Simple way to reset the page
+    });
+    
+    socket.on('error', ({ message }) => {
+      alert(message);
+    });
+    
+    // Helper functions
+    function updateParticipantsList(participants) {
+      participantsList.innerHTML = '';
+      participants.forEach(participant => {
+        const participantElement = document.createElement('div');
+        participantElement.className = 'participant';
+        participantElement.id = `participant-${participant.id}`;
+        participantElement.textContent = participant.name;
+        participantsList.appendChild(participantElement);
+      });
+    }
+    
+    function updateBuzzerResults(presses) {
+      const resultsList = isHost ? buzzerResults : participantBuzzerResults;
+      resultsList.innerHTML = '';
+      
+      presses.forEach((press, index) => {
+        const li = document.createElement('li');
+        li.textContent = `${press.name}: ${press.reactionTime} ms`;
+        resultsList.appendChild(li);
+      });
+    }
+    
+    function updateBuzzerState(state) {
+      if (!isHost) {
+        switch (state) {
+          case 'standby':
+            buzzer.disabled = true;
+            buzzer.classList.remove('active');
+            participantStatus.textContent = 'Waiting for host to start...';
+            break;
+          case 'countdown':
+            buzzer.disabled = true;
+            buzzer.classList.remove('active');
+            participantStatus.textContent = 'Get ready!';
+            break;
+          case 'active':
+            buzzer.disabled = hasBuzzed;
+            buzzer.classList.add('active');
+            participantStatus.textContent = hasBuzzed ? 'Buzz sent!' : 'BUZZ NOW!';
+            break;
+          case 'finished':
+            buzzer.disabled = true;
+            buzzer.classList.remove('active');
+            participantStatus.textContent = 'Round ended. Waiting for host to reset...';
+            break;
+        }
+      }
+    }
+    
+    function startCountdown(element, seconds) {
+      element.textContent = seconds;
+      let timeLeft = seconds - 1;
+      
+      const interval = setInterval(() => {
+        if (timeLeft <= 0) {
+          clearInterval(interval);
+          return;
+        }
+        element.textContent = timeLeft;
+        timeLeft--;
+      }, 1000);
+    }
+    
+    function updateScoreboard(scores) {
+      // Create array of scores to sort
+      const scoreArray = Object.values(scores);
+      scoreArray.sort((a, b) => b.score - a.score);
+      
+      // Update host scoreboard
+      if (isHost) {
+        scoreboardBody.innerHTML = '';
+        scoreArray.forEach(participant => {
+          const row = document.createElement('tr');
+          if (participant.score > 0 && participant.score === scoreArray[0].score) {
+            row.className = 'winner-row';
+          }
+          
+          const nameCell = document.createElement('td');
+          nameCell.textContent = participant.name;
+          
+          const scoreCell = document.createElement('td');
+          scoreCell.textContent = participant.score;
+          
+          row.appendChild(nameCell);
+          row.appendChild(scoreCell);
+          scoreboardBody.appendChild(row);
+        });
+      }
+      
+      // Update participant scoreboard
+      participantScoreboardBody.innerHTML = '';
+      scoreArray.forEach(participant => {
+        const row = document.createElement('tr');
+        if (participant.score > 0 && participant.score === scoreArray[0].score) {
+          row.className = 'winner-row';
+        }
+        
+        const nameCell = document.createElement('td');
+        nameCell.textContent = participant.name;
+        
+        const scoreCell = document.createElement('td');
+        scoreCell.textContent = participant.score;
+        
+        row.appendChild(nameCell);
+        row.appendChild(scoreCell);
+        participantScoreboardBody.appendChild(row);
+      });
+    }
+    
+    function updateRoundHistory(rounds) {
+      roundHistoryList.innerHTML = '';
+      
+      // Display rounds in reverse order (newest first)
+      for (let i = rounds.length - 1; i >= 0; i--) {
+        const round = rounds[i];
+        const roundCard = document.createElement('div');
+        roundCard.className = 'round-card';
+        
+        const roundHeader = document.createElement('h4');
+        roundHeader.textContent = `Round ${round.roundNumber}`;
+        roundCard.appendChild(roundHeader);
+        
+        if (round.winner) {
+          const winnerInfo = document.createElement('div');
+          winnerInfo.className = 'winner-info';
+          winnerInfo.textContent = `Winner: ${round.winner.name} (${round.winner.reactionTime} ms)`;
+          roundCard.appendChild(winnerInfo);
+        } else {
+          const noWinner = document.createElement('div');
+          noWinner.textContent = 'No winner for this round';
+          roundCard.appendChild(noWinner);
+        }
+        
+        if (round.buzzerPresses.length > 0) {
+          const resultsList = document.createElement('ul');
+          round.buzzerPresses.forEach(press => {
+            const listItem = document.createElement('li');
+            listItem.textContent = `${press.name}: ${press.reactionTime} ms`;
+            resultsList.appendChild(listItem);
+          });
+          roundCard.appendChild(resultsList);
+        }
+        
+        roundHistoryList.appendChild(roundCard);
+      }
+    }
+    
+    function updateParticipantRoundHistory(rounds) {
+      participantRoundHistoryList.innerHTML = '';
+      
+      // Display rounds in reverse order (newest first)
+      for (let i = rounds.length - 1; i >= 0; i--) {
+        const round = rounds[i];
+        const roundCard = document.createElement('div');
+        roundCard.className = 'round-card';
+        
+        const roundHeader = document.createElement('h4');
+        roundHeader.textContent = `Round ${round.roundNumber}`;
+        roundCard.appendChild(roundHeader);
+        
+        if (round.winner) {
+          const winnerInfo = document.createElement('div');
+          winnerInfo.className = 'winner-info';
+          winnerInfo.textContent = `Winner: ${round.winner.name} (${round.winner.reactionTime} ms)`;
+          roundCard.appendChild(winnerInfo);
+        } else {
+          const noWinner = document.createElement('div');
+          noWinner.textContent = 'No winner for this round';
+          roundCard.appendChild(noWinner);
+        }
+        
+        if (round.buzzerPresses.length > 0) {
+          const resultsList = document.createElement('ul');
+          round.buzzerPresses.forEach(press => {
+            const listItem = document.createElement('li');
+            listItem.textContent = `${press.name}: ${press.reactionTime} ms`;
+            resultsList.appendChild(listItem);
+          });
+          roundCard.appendChild(resultsList);
+        }
+        
+        participantRoundHistoryList.appendChild(roundCard);
+      }
+    }
+    
+    // Tab functionality
+    function openTab(evt, tabName) {
+      // Declare variables
+      let i, tabcontent, tablinks;
+      
+      // Get all elements with class="tab-content" and hide them
+      tabcontent = document.getElementsByClassName("tab-content");
+      for (i = 0; i < tabcontent.length; i++) {
+        tabcontent[i].classList.remove("active");
+      }
+      
+      // Get all elements with class="tab-button" and remove the "active" class
+      tablinks = document.getElementsByClassName("tab-button");
+      for (i = 0; i < tablinks.length; i++) {
+        tablinks[i].classList.remove("active");
+      }
+      
+      // Show the current tab, and add an "active" class to the button that opened the tab
+      document.getElementById(tabName).classList.add("active");
+      evt.currentTarget.classList.add("active");
+    }
+  </script>
+</body>
+</html>
+        
