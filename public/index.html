@@ -16,16 +16,20 @@
       <button id="createRoomBtn">Create a Room (Host)</button>
       <div>
         <h3>Join Existing Room</h3>
-        <!-- <input type="text" id="participantName" placeholder="Your Name" required> -->
         <input type="text" id="roomIdInput" placeholder="Room Code" required>
+        <div class="player-number-input">
+          <label for="playerNumber">Player Number (1-50):</label>
+          <input type="text" id="playerNumber" max="50"value="" required> 
+        </div>
         <button id="joinRoomBtn">Join Room</button>
+        <div id="joinErrorMessage" class="error-message"></div>
       </div>
     </div>
     
     <!-- Host Screen -->
     <div id="hostScreen" class="section hidden">
-      <h2>Host Panel</h2>
-      <div class="room-code">Room Code: <span id="roomCode"></span></div>
+      <h2>Room Code: <span id="roomCode"></span></h2>
+
       <div class="round-info">Round: <span id="currentRoundDisplay">1</span></div>
       
       <div class="control-panel">
@@ -33,6 +37,7 @@
           <option value="0">No countdown</option>
           <option value="3">3 second countdown</option>
           <option value="5">5 second countdown</option>
+          <option value="10">10 second countdown</option>
         </select>
         <button id="startCountdownBtn">Start Countdown</button>
         <button id="endRoundBtn" disabled>End Round</button>
@@ -53,7 +58,6 @@
       <div class="tab-container">
         <div class="tab-buttons">
           <button class="tab-button active" onclick="openTab(event, 'currentRoundTab')">Current Round</button>
-
           <button class="tab-button" onclick="openTab(event, 'roundHistoryTab')">Round History</button>
         </div>
         
@@ -84,8 +88,8 @@
     
     <!-- Participant Screen -->
     <div id="participantScreen" class="section hidden">
-      <h2>Participant Panel</h2>
-      <div class="room-code">Room Code: <span id="participantRoomCode"></span></div>
+      <h2>Player Number: <span id="playerNumberDisplay"></span></h2>
+      <div class="player-info"></div>
       <div class="round-info">Round: <span id="participantCurrentRoundDisplay">1</span></div>
       
       <div id="participantCountdown" class="countdown-container hidden">
@@ -135,140 +139,8 @@
   <script src="/socket.io/socket.io.js"></script>
   <script>
     // Connect to Socket.IO server
-  const socket = io({
-    reconnection: true,
-    reconnectionAttempts: 10,
-    reconnectionDelay: 1000,
-    reconnectionDelayMax: 5000,
-    timeout: 20000
-  });
-
-  // Add these variables for session persistence
-  let participantId = localStorage.getItem('participantId');
-  let lastRoomId = localStorage.getItem('lastRoomId');
-
-  // Add this to save session data
-  function saveSessionData(roomId, pId) {
-    if (roomId) localStorage.setItem('lastRoomId', roomId);
-    if (pId) localStorage.setItem('participantId', pId);
+    const socket = io();
     
-    // Also save current round for context
-    localStorage.setItem('currentRound', currentRound);
-  }
-
-// Add this after your existing socket.on event handlers
-socket.on('rejoined-room', ({ roomId, isHost: hostStatus, participants, buzzerState, rounds, currentRound: roundNum, participantId }) => {
-  isHost = hostStatus;
-  currentRoomId = roomId;
-  roundHistory = rounds || [];
-  currentRound = roundNum || 1;
-  
-  // Save our session data
-  saveSessionData(roomId, participantId);
-  
-  // Update UI based on previous state
-  initialScreen.classList.add('hidden');
-  
-  if (isHost) {
-    participantScreen.classList.add('hidden');
-    hostScreen.classList.remove('hidden');
-    roomCode.textContent = roomId;
-    currentRoundDisplay.textContent = currentRound;
-    
-    // Display participants
-    updateParticipantsList(participants);
-    
-    // Update round history
-    updateRoundHistory(roundHistory);
-  } else {
-    hostScreen.classList.add('hidden');
-    participantScreen.classList.remove('hidden');
-    participantRoomCode.textContent = roomId;
-    participantCurrentRoundDisplay.textContent = currentRound;
-    
-    // Update round history
-    updateParticipantRoundHistory(roundHistory);
-    
-    // Set initial buzzer state
-    updateBuzzerState(buzzerState);
-    
-    participantStatus.textContent = 'Reconnected! Waiting for host...';
-  }
-  
-  console.log(`Successfully rejoined room ${roomId}`);
-});
-
-// Add these new event handlers
-socket.on('participant-disconnected', ({ id, name }) => {
-  // Show participant as inactive but don't remove them
-  const participantElement = document.getElementById(`participant-${id}`);
-  if (participantElement) {
-    participantElement.classList.add('disconnected');
-    participantElement.title = 'Temporarily disconnected';
-  }
-});
-
-socket.on('participant-rejoined', ({ id, name }) => {
-  // Show participant as active again
-  const participantElement = document.getElementById(`participant-${id}`);
-  if (participantElement) {
-    participantElement.classList.remove('disconnected');
-    participantElement.title = '';
-  }
-});
-
-  // Modify the joined-room handler to save session info
-  socket.on('joined-room', ({ roomId, isHost: hostStatus, participants, buzzerState, rounds, currentRound: roundNum, participantId }) => {
-    isHost = hostStatus;
-    currentRoomId = roomId;
-    roundHistory = rounds || [];
-    currentRound = roundNum || 1;
-    
-    // Save our session data
-    saveSessionData(roomId, participantId);
-    
-    initialScreen.classList.add('hidden');
-    // [rest of the original function remains the same]
-  });
-
-  // Add this to handle unexpected disconnections more gracefully
-  socket.on('connect_error', () => {
-    if (!isHost && currentRoomId) {
-      participantStatus.textContent = 'Connection lost. Attempting to reconnect...';
-    }
-  });
-
-  socket.on('reconnect_attempt', (attemptNumber) => {
-    if (!isHost && currentRoomId) {
-      participantStatus.textContent = `Connection lost. Reconnection attempt ${attemptNumber}...`;
-    }
-  });
-
-  socket.on('reconnect_failed', () => {
-    if (!isHost && currentRoomId) {
-      participantStatus.textContent = 'Failed to reconnect. Please refresh the page.';
-    }
-  });
-
-  // Add reconnection handler
-  socket.on('reconnect', () => {
-    console.log('Reconnected to server');
-    
-    // If we were in a room before, try to rejoin
-    if (lastRoomId) {
-      // Attempt to rejoin with our previous ID
-      socket.emit('rejoin-room', { 
-        roomId: lastRoomId,
-        participantId: participantId
-      });
-      
-      // Update status message
-      if (!isHost) {
-        participantStatus.textContent = 'Reconnecting to room...';
-      }
-    }
-  });
-      
     // DOM Elements
     const initialScreen = document.getElementById('initialScreen');
     const hostScreen = document.getElementById('hostScreen');
@@ -276,9 +148,10 @@ socket.on('participant-rejoined', ({ id, name }) => {
     const createRoomBtn = document.getElementById('createRoomBtn');
     const joinRoomBtn = document.getElementById('joinRoomBtn');
     const roomIdInput = document.getElementById('roomIdInput');
-    const participantName = document.getElementById('participantName');
+    const playerNumber = document.getElementById('playerNumber');
+    const joinErrorMessage = document.getElementById('joinErrorMessage');
+    const playerNumberDisplay = document.getElementById('playerNumberDisplay');
     const roomCode = document.getElementById('roomCode');
-    const participantRoomCode = document.getElementById('participantRoomCode');
     const participantsList = document.getElementById('participantsList');
     const buzzer = document.getElementById('buzzer');
     const participantStatus = document.getElementById('participantStatus');
@@ -306,6 +179,35 @@ socket.on('participant-rejoined', ({ id, name }) => {
     let roundHistory = [];
     let currentRound = 1;
     let participantScores = {};
+    let myPlayerNumber = null;
+
+    document.addEventListener('DOMContentLoaded', () => {
+      // Check if we have saved values from a previous session
+      const lastRoomId = localStorage.getItem('lastRoomId');
+      const lastPlayerNumber = localStorage.getItem('lastPlayerNumber');
+      
+      if (lastRoomId) {
+        roomIdInput.value = lastRoomId;
+      }
+      
+      if (lastPlayerNumber) {
+        playerNumber.value = lastPlayerNumber;
+      }
+      
+      // Clear localStorage values after using them
+      localStorage.removeItem('lastRoomId');
+      localStorage.removeItem('lastPlayerNumber');
+    });
+    
+    // Validate player number input
+    playerNumber.addEventListener('input', function() {
+      const value = parseInt(this.value);
+      if (isNaN(value) || value < 1) {
+        this.value = null;
+      } else if (value > 50) {
+        this.value = 50;
+      }
+    });
     
     // Event listeners
     createRoomBtn.addEventListener('click', () => {
@@ -314,14 +216,20 @@ socket.on('participant-rejoined', ({ id, name }) => {
     
     joinRoomBtn.addEventListener('click', () => {
       const roomId = roomIdInput.value.trim();
-      
+      const playerNum = parseInt(playerNumber.value);
       
       if (!roomId) {
-        alert('Please enter the room code');
+        joinErrorMessage.textContent = 'Please enter the room code';
         return;
       }
       
-      socket.emit('join-room', { roomId });
+      if (isNaN(playerNum) || playerNum < 1 || playerNum > 50) {
+        joinErrorMessage.textContent = 'Player number must be between 1 and 50';
+        return;
+      }
+      
+      joinErrorMessage.textContent = '';
+      socket.emit('join-room', { roomId, playerNum });
     });
     
     buzzer.addEventListener('click', () => {
@@ -332,9 +240,7 @@ socket.on('participant-rejoined', ({ id, name }) => {
       hasBuzzed = true;
     });
     
-    
     startCountdownBtn.addEventListener('click', () => {
-
       winnerDisplayParticipant.classList.add('hidden');
       winnerDisplay.classList.add('hidden');
       const seconds = parseInt(countdownTime.value);
@@ -366,11 +272,12 @@ socket.on('participant-rejoined', ({ id, name }) => {
       hostScreen.classList.remove('hidden');
     });
     
-    socket.on('joined-room', ({ roomId, isHost: hostStatus, participants, buzzerState, rounds, currentRound: roundNum }) => {
+    socket.on('joined-room', ({ roomId, isHost: hostStatus, participants, buzzerState, rounds, currentRound: roundNum, playerNum }) => {
       isHost = hostStatus;
       currentRoomId = roomId;
       roundHistory = rounds || [];
       currentRound = roundNum || 1;
+      myPlayerNumber = playerNum;
       
       initialScreen.classList.add('hidden');
       if (isHost) {
@@ -385,7 +292,7 @@ socket.on('participant-rejoined', ({ id, name }) => {
         updateRoundHistory(roundHistory);
       } else {
         participantScreen.classList.remove('hidden');
-        participantRoomCode.textContent = roomId;
+        playerNumberDisplay.textContent = playerNum;
         participantCurrentRoundDisplay.textContent = currentRound;
         
         // Update round history
@@ -396,12 +303,16 @@ socket.on('participant-rejoined', ({ id, name }) => {
       }
     });
     
+    socket.on('join-error', ({ message }) => {
+      joinErrorMessage.textContent = message;
+    });
+    
     socket.on('participant-joined', ({ id, name }) => {
       // Add the new participant to the list
       const participantElement = document.createElement('div');
       participantElement.className = 'participant';
       participantElement.id = `participant-${id}`;
-      participantElement.textContent = name;
+      participantElement.textContent = `Player ${name}`;
       participantsList.appendChild(participantElement);
     });
     
@@ -442,7 +353,6 @@ socket.on('participant-rejoined', ({ id, name }) => {
       }
     });
     
-    // Update the 'buzzer-active' handler to enable the endRoundBtn
     socket.on('buzzer-active', ({ buzzerState }) => {
       if (isHost) {
         countdownDisplay.classList.add('hidden');
@@ -466,7 +376,6 @@ socket.on('participant-rejoined', ({ id, name }) => {
       yourResult.classList.remove('hidden');
     });
     
-  // Update the 'round-ended' handler to show the winner info
     socket.on('round-ended', ({ buzzerState, buzzerPresses, rounds, scores }) => {
       updateBuzzerState(buzzerState);
       roundHistory = rounds;
@@ -481,7 +390,7 @@ socket.on('participant-rejoined', ({ id, name }) => {
         // Display winner briefly before reset
         if (buzzerPresses.length > 0) {
           const winner = buzzerPresses[0];
-          winnerDisplay.innerHTML = `Round ${currentRound} Winner: ${winner.name} <br> Time: ${winner.reactionTime / 1000} seconds`;
+          winnerDisplay.innerHTML = `Round ${currentRound} Winner: Player ${winner.name} <br> Time: ${winner.reactionTime / 1000} seconds`;
           winnerDisplay.classList.remove('hidden');
         } else {
           winnerDisplay.innerHTML = `Round ${currentRound} completed - No winner`;
@@ -493,18 +402,15 @@ socket.on('participant-rejoined', ({ id, name }) => {
         // Display winner for participants
         if (buzzerPresses.length > 0) {
           const winner = buzzerPresses[0];
-          winnerDisplayParticipant.innerHTML = `Round ${currentRound} Winner: ${winner.name} <br> Time: ${winner.reactionTime / 1000} seconds`;
+          winnerDisplayParticipant.innerHTML = `Round ${currentRound} Winner: Player ${winner.name} <br> Time: ${winner.reactionTime / 1000} seconds`;
           winnerDisplayParticipant.classList.remove('hidden');
         } else {
           winnerDisplayParticipant.innerHTML = `Round ${currentRound} completed - No winner`;
           winnerDisplayParticipant.classList.remove('hidden');
         }
       }
-      
-      // Note: We don't enable the endRoundBtn here because the buzzer-reset event will happen automatically
     });
     
-    // Update the 'buzzer-reset' event handler
     socket.on('buzzer-reset', ({ buzzerState, currentRound: roundNum, rounds, scores }) => {
       // Update round number
       currentRound = roundNum;
@@ -532,9 +438,6 @@ socket.on('participant-rejoined', ({ id, name }) => {
         startCountdownBtn.disabled = false;
         endRoundBtn.disabled = true; // Initially disabled until buzzer becomes active
         countdownDisplay.classList.add('hidden');
-        
-        // Hide winner display after a brief delay to allow users to see it
-
       } else {
         buzzer.disabled = true;
         buzzer.classList.remove('active');
@@ -542,9 +445,6 @@ socket.on('participant-rejoined', ({ id, name }) => {
         participantStatus.textContent = 'Waiting for host to start...';
         hasBuzzed = false;
         yourResult.classList.add('hidden');
-        
-        // Hide winner display after a brief delay
-
       }
     });
         
@@ -557,6 +457,14 @@ socket.on('participant-rejoined', ({ id, name }) => {
       alert(message);
     });
     
+    socket.on('disconnect', () => {
+      if (!isHost) {
+        participantStatus.textContent = 'Disconnected from server. Please refresh to rejoin.';
+      }
+      showDisconnectedOverlay();
+      buzzer.disabled = true;
+    });
+    
     // Helper functions
     function updateParticipantsList(participants) {
       participantsList.innerHTML = '';
@@ -564,7 +472,7 @@ socket.on('participant-rejoined', ({ id, name }) => {
         const participantElement = document.createElement('div');
         participantElement.className = 'participant';
         participantElement.id = `participant-${participant.id}`;
-        participantElement.textContent = participant.name;
+        participantElement.textContent = `Player ${participant.name}`;
         participantsList.appendChild(participantElement);
       });
     }
@@ -573,9 +481,9 @@ socket.on('participant-rejoined', ({ id, name }) => {
       const resultsList = isHost ? buzzerResults : participantBuzzerResults;
       resultsList.innerHTML = '';
       
-      presses.forEach((press, index) => {
+      presses.forEach((press) => {
         const li = document.createElement('li');
-        li.textContent = `${press.name}: ${press.reactionTime / 1000} seconds`;
+        li.textContent = `Player ${press.name}: ${press.reactionTime / 1000} seconds`;
         resultsList.appendChild(li);
       });
     }
@@ -636,7 +544,7 @@ socket.on('participant-rejoined', ({ id, name }) => {
           }
           
           const nameCell = document.createElement('td');
-          nameCell.textContent = participant.name;
+          nameCell.textContent = `Player ${participant.name}`;
           
           const scoreCell = document.createElement('td');
           scoreCell.textContent = participant.score;
@@ -656,7 +564,7 @@ socket.on('participant-rejoined', ({ id, name }) => {
         }
         
         const nameCell = document.createElement('td');
-        nameCell.textContent = participant.name;
+        nameCell.textContent = `Player ${participant.name}`;
         
         const scoreCell = document.createElement('td');
         scoreCell.textContent = participant.score;
@@ -683,7 +591,7 @@ socket.on('participant-rejoined', ({ id, name }) => {
         if (round.winner) {
           const winnerInfo = document.createElement('div');
           winnerInfo.className = 'winner-info';
-          winnerInfo.textContent = `Winner: ${round.winner.name} (${round.winner.reactionTime / 1000} seconds)`;
+          winnerInfo.textContent = `Winner: Player ${round.winner.name} (${round.winner.reactionTime / 1000} seconds)`;
           roundCard.appendChild(winnerInfo);
         } else {
           const noWinner = document.createElement('div');
@@ -695,7 +603,7 @@ socket.on('participant-rejoined', ({ id, name }) => {
           const resultsList = document.createElement('ul');
           round.buzzerPresses.forEach(press => {
             const listItem = document.createElement('li');
-            listItem.textContent = `${press.name}: ${press.reactionTime / 1000} seconds`;
+            listItem.textContent = `Player ${press.name}: ${press.reactionTime / 1000} seconds`;
             resultsList.appendChild(listItem);
           });
           roundCard.appendChild(resultsList);
@@ -721,7 +629,7 @@ socket.on('participant-rejoined', ({ id, name }) => {
         if (round.winner) {
           const winnerInfo = document.createElement('div');
           winnerInfo.className = 'winner-info';
-          winnerInfo.textContent = `Winner: ${round.winner.name} (${round.winner.reactionTime / 1000} seconds)`;
+          winnerInfo.textContent = `Winner: Player ${round.winner.name} (${round.winner.reactionTime / 1000} seconds)`;
           roundCard.appendChild(winnerInfo);
         } else {
           const noWinner = document.createElement('div');
@@ -733,7 +641,7 @@ socket.on('participant-rejoined', ({ id, name }) => {
           const resultsList = document.createElement('ul');
           round.buzzerPresses.forEach(press => {
             const listItem = document.createElement('li');
-            listItem.textContent = `${press.name}: ${press.reactionTime} ms`;
+            listItem.textContent = `Player ${press.name}: ${press.reactionTime / 1000} seconds`;
             resultsList.appendChild(listItem);
           });
           roundCard.appendChild(resultsList);
@@ -764,7 +672,65 @@ socket.on('participant-rejoined', ({ id, name }) => {
       document.getElementById(tabName).classList.add("active");
       evt.currentTarget.classList.add("active");
     }
+
+    // Add this function to your client-side JavaScript
+    function showDisconnectedOverlay() {
+      // Create overlay element
+      const overlay = document.createElement('div');
+      overlay.className = 'disconnected-overlay';
+      
+      // Create message element
+      const message = document.createElement('div');
+      message.textContent = 'Disconnected from server';
+      overlay.appendChild(message);
+      
+      // Create player info if we have it
+      if (myPlayerNumber) {
+        const playerInfo = document.createElement('div');
+        playerInfo.textContent = `You were Player ${myPlayerNumber}`;
+        playerInfo.style.fontSize = '18px';
+        playerInfo.style.marginTop = '10px';
+        overlay.appendChild(playerInfo);
+      }
+      
+      // Create refresh button
+      const refreshBtn = document.createElement('button');
+      refreshBtn.textContent = 'Refresh Page';
+      refreshBtn.addEventListener('click', () => {
+        window.location.reload();
+      });
+      overlay.appendChild(refreshBtn);
+      
+      // Add overlay to body
+      document.body.appendChild(overlay);
+      
+      // Store player info in localStorage to help with rejoining
+      if (currentRoomId && myPlayerNumber) {
+        localStorage.setItem('lastRoomId', currentRoomId);
+        localStorage.setItem('lastPlayerNumber', myPlayerNumber);
+      }
+    }
+
+
+    // Add these event handlers to your client-side JavaScript
+socket.on('participant-disconnected', ({ id, name }) => {
+  // Visual indicator that a participant is temporarily disconnected
+  const participantElement = document.getElementById(`participant-${id}`);
+  if (participantElement) {
+    participantElement.classList.add('disconnected');
+    participantElement.setAttribute('title', 'Disconnected - will be removed after timeout');
+  }
+});
+
+socket.on('participant-rejoined', ({ id, name }) => {
+  // Remove disconnected visual indicator when they come back
+  const participantElement = document.getElementById(`participant-${id}`);
+  if (participantElement) {
+    participantElement.classList.remove('disconnected');
+    participantElement.removeAttribute('title');
+  }
+});
+
   </script>
 </body>
 </html>
-        

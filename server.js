@@ -1,10 +1,6 @@
 // server.js - Node.js server using Socket.IO for a buzzer system with countdown and round tracking
 
-
-
-
-const DISCONNECT_GRACE_PERIOD = 60000; // 60 seconds before actually removing participant
-const disconnectedParticipants = {}; // Store disconnected participants by room
+const DISCONNECT_GRACE_PERIOD = 0; // 60 seconds before actually removing participant
 
 const express = require('express');
 const http = require('http');
@@ -20,6 +16,7 @@ app.use(express.static(path.join(__dirname, 'public')));
 
 // Data structures to track rooms and buzzer presses
 const rooms = {};
+const disconnectedParticipants = {}; // Store disconnected participants by room
 
 io.on('connection', (socket) => {
   console.log('A user connected:', socket.id);
@@ -57,7 +54,8 @@ io.on('connection', (socket) => {
           buzzerState: rooms[roomId].buzzerState,
           rounds: rooms[roomId].rounds,
           currentRound: rooms[roomId].currentRound,
-          participantId: participantId
+          participantId: participantId,
+          playerNum: parseInt(participantData.name) // Send back their player number
         });
         
         // Let the host know they're back
@@ -66,51 +64,14 @@ io.on('connection', (socket) => {
           name: participantData.name
         });
         
-        console.log(`${participantData.name} rejoined room: ${roomId}`);
+        console.log(`Player ${participantData.name} rejoined room: ${roomId}`);
       } else {
-        // Fall back to regular join if for some reason we can't find their data
-        handleRegularJoin(socket, roomId);
+        socket.emit('error', { message: 'Could not find your previous session' });
       }
     } else {
-      // If no record of this participant, handle as a new join
-      handleRegularJoin(socket, roomId);
+      socket.emit('error', { message: 'Session expired or not found' });
     }
   });
-  
-  // Helper function for handling regular joins
-  function handleRegularJoin(socket, roomId) {
-    // Assign the next available participant number
-    const participantNumber = rooms[roomId].nextParticipantNumber++;
-    const participantId = socket.id;
-    
-    rooms[roomId].participants[participantId] = {
-      id: participantId,
-      socketId: socket.id,
-      name: `Player ${participantNumber}`,
-      hasPressed: false,
-      score: 0
-    };
-    
-    socket.join(roomId);
-    
-    // Notify the host about the new participant
-    socket.to(rooms[roomId].hostId).emit('participant-joined', {
-      id: participantId, 
-      name: rooms[roomId].participants[participantId].name
-    });
-    
-    socket.emit('joined-room', { 
-      roomId,
-      isHost: false,
-      participants: Object.values(rooms[roomId].participants),
-      buzzerState: rooms[roomId].buzzerState,
-      rounds: rooms[roomId].rounds,
-      currentRound: rooms[roomId].currentRound,
-      participantId: participantId
-    });
-    
-    console.log(`${rooms[roomId].participants[participantId].name} joined room: ${roomId}`);
-  }
   
   // Create a new room
   socket.on('create-room', () => {
@@ -123,7 +84,7 @@ io.on('connection', (socket) => {
       countdownEndTime: null,
       rounds: [], // Store completed rounds
       currentRound: 1, // Track current round number
-      nextParticipantNumber: 1 // Add a counter for participant numbers
+      playerNumbers: [] // Track taken player numbers
     };
     
     socket.join(roomId);
@@ -131,13 +92,57 @@ io.on('connection', (socket) => {
     console.log(`Room created: ${roomId} by host: ${socket.id}`);
   });
 
-  socket.on('join-room', ({ roomId }) => {
+  // Join an existing room with player number
+  socket.on('join-room', ({ roomId, playerNum }) => {
     if (!rooms[roomId]) {
-      socket.emit('error', { message: 'Room does not exist' });
+      socket.emit('join-error', { message: 'Room does not exist' });
       return;
     }
     
-    handleRegularJoin(socket, roomId);
+    // Validate the player number
+    if (isNaN(playerNum) || playerNum < 1 || playerNum > 50) {
+      socket.emit('join-error', { message: 'Player number must be between 1 and 50' });
+      return;
+    }
+    
+    // Check if the player number is already taken
+    if (rooms[roomId].playerNumbers.includes(playerNum)) {
+      socket.emit('join-error', { message: `Player number ${playerNum} is already taken` });
+      return;
+    }
+    
+    // Add the player number to the taken list
+    rooms[roomId].playerNumbers.push(playerNum);
+    
+    // Create participant
+    const participantId = socket.id;
+    rooms[roomId].participants[participantId] = {
+      id: participantId,
+      socketId: socket.id,
+      name: playerNum.toString(), // Store the player number as the name
+      hasPressed: false,
+      score: 0
+    };
+    
+    socket.join(roomId);
+    
+    // Notify the host about the new participant
+    socket.to(rooms[roomId].hostId).emit('participant-joined', {
+      id: participantId, 
+      name: playerNum.toString()
+    });
+    
+    socket.emit('joined-room', { 
+      roomId,
+      isHost: false,
+      participants: Object.values(rooms[roomId].participants),
+      buzzerState: rooms[roomId].buzzerState,
+      rounds: rooms[roomId].rounds,
+      currentRound: rooms[roomId].currentRound,
+      playerNum: playerNum
+    });
+    
+    console.log(`Player ${playerNum} joined room: ${roomId}`);
   });
 
   // Start countdown (host only)
@@ -223,7 +228,7 @@ io.on('connection', (socket) => {
       reactionTime
     });
 
-    console.log(`Buzz from ${participant.name} in room ${roomId} with reaction time ${reactionTime}ms`);
+    console.log(`Buzz from Player ${participant.name} in room ${roomId} with reaction time ${reactionTime}ms`);
   });
 
   // End buzzer round (host only)
@@ -310,80 +315,88 @@ io.on('connection', (socket) => {
     console.log(`Buzzer reset in room ${roomId} for round ${rooms[roomId].currentRound}`);
   });
 
-  // Handle disconnection
-  // Update the disconnect handler
-  socket.on('disconnect', () => {
-    // Find if user was in any room
-    for (const roomId in rooms) {
-      // If user was a host
-      if (rooms[roomId].hostId === socket.id) {
-        // For hosts, we can keep the existing behavior:
-        // Notify all participants that the room is closing
-        io.to(roomId).emit('room-closed', { message: 'Host has left the room' });
-        delete rooms[roomId];
-        console.log(`Room ${roomId} closed because host left`);
-      } 
-      // If user was a participant
-      else {
-        // Check all participants to find the one with this socket ID
-        for (const participantId in rooms[roomId].participants) {
-          const participant = rooms[roomId].participants[participantId];
-          
-          // If this is the participant who disconnected
-          if (participant.socketId === socket.id) {
-            const participantName = participant.name;
-            
-            // Instead of immediately removing them, put them in the disconnected list
-            if (!disconnectedParticipants[roomId]) {
-              disconnectedParticipants[roomId] = {};
-            }
-            
-            // Set a timeout to remove them after the grace period
-            const timeoutId = setTimeout(() => {
-              // Only if they're still disconnected after the grace period
-              if (disconnectedParticipants[roomId] && 
-                  disconnectedParticipants[roomId][participantId]) {
-                
-                // Notify host that participant left permanently
-                io.to(rooms[roomId].hostId).emit('participant-left', { 
-                  id: participantId, 
-                  name: participantName 
-                });
-                
-                // Remove them from the room
-                delete rooms[roomId].participants[participantId];
-                delete disconnectedParticipants[roomId][participantId];
-                
-                console.log(`${participantName} permanently left room ${roomId} after grace period`);
-              }
-            }, DISCONNECT_GRACE_PERIOD);
-            
-            // Store their info for potential reconnection
-            disconnectedParticipants[roomId][participantId] = {
-              timeoutId: timeoutId,
-              disconnectTime: Date.now()
-            };
-            
-            // Notify host that participant disconnected (but might return)
-            io.to(rooms[roomId].hostId).emit('participant-disconnected', { 
-              id: participantId, 
-              name: participantName 
-            });
-            
-            console.log(`${participantName} temporarily disconnected from room ${roomId}`);
-            break;
-          }
-        }
-      }
-    }
+// Update the disconnect handler in server.js
 
-    console.log('User disconnected:', socket.id);
-  });
+// Handle disconnection
+socket.on('disconnect', () => {
+  // Find if user was in any room
+  for (const roomId in rooms) {
+    // If user was a host
+    if (rooms[roomId].hostId === socket.id) {
+      // For hosts, we close the room
+      // Notify all participants that the room is closing
+      io.to(roomId).emit('room-closed', { message: 'Host has left the room' });
+      delete rooms[roomId];
+      
+      // Also clean up any disconnected participants for this room
+      if (disconnectedParticipants[roomId]) {
+        delete disconnectedParticipants[roomId];
+      }
+      
+      console.log(`Room ${roomId} closed because host left`);
+    } 
+    // If user was a participant
+    else if (rooms[roomId].participants[socket.id]) {
+      const participant = rooms[roomId].participants[socket.id];
+      const participantName = participant.name;
+      const participantId = socket.id;
+      
+      // Instead of immediately removing them, put them in the disconnected list
+      if (!disconnectedParticipants[roomId]) {
+        disconnectedParticipants[roomId] = {};
+      }
+      
+      // Set a timeout to remove them after the grace period
+      const timeoutId = setTimeout(() => {
+        // Only if they're still disconnected after the grace period
+        if (disconnectedParticipants[roomId] && 
+            disconnectedParticipants[roomId][participantId]) {
+          
+          // Remove their player number from the taken list
+          const playerNum = parseInt(participantName);
+          const index = rooms[roomId].playerNumbers.indexOf(playerNum);
+          if (index !== -1) {
+            rooms[roomId].playerNumbers.splice(index, 1);
+          }
+          
+          // Notify host that participant left permanently
+          io.to(rooms[roomId].hostId).emit('participant-left', { 
+            id: participantId, 
+            name: participantName 
+          });
+          
+          // Remove them from the room
+          delete rooms[roomId].participants[participantId];
+          delete disconnectedParticipants[roomId][participantId];
+          
+          console.log(`Player ${participantName} permanently left room ${roomId} after grace period`);
+        }
+      }, DISCONNECT_GRACE_PERIOD);
+      
+      // Store their info for potential reconnection
+      disconnectedParticipants[roomId][participantId] = {
+        timeoutId: timeoutId,
+        disconnectTime: Date.now(),
+        playerNumber: parseInt(participantName) // Store the player number explicitly
+      };
+      
+      // Notify host that participant disconnected (but might return)
+      io.to(rooms[roomId].hostId).emit('participant-disconnected', { 
+        id: participantId, 
+        name: participantName 
+      });
+      
+      console.log(`Player ${participantName} temporarily disconnected from room ${roomId}`);
+    }
+  }
+
+  console.log('User disconnected:', socket.id);
+});
 });
 
 // Generate a simple 6-character room ID
 function generateRoomId() {
-  const chars = '012345789ABCDEF';
+  const chars = '012345789';
   let result = '';
   for (let i = 0; i < 4; i++) {
     result += chars.charAt(Math.floor(Math.random() * chars.length));
@@ -391,7 +404,7 @@ function generateRoomId() {
   return result;
 }
 
-const PORT = process.env.PORT || 3001;
+const PORT = process.env.PORT || 3002;
 server.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
